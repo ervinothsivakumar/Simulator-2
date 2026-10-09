@@ -37,6 +37,9 @@ canvas#view{position:fixed;inset:0;width:100%;height:100%;display:block}
 #heat{inset:0;box-shadow:inset 0 0 140px 40px var(--bad);opacity:0;transition:opacity .25s}
 #zap{inset:0;background:var(--fg);opacity:0;transition:opacity .35s}
 #radio{left:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 40px);max-width:min(460px,calc(100vw - 32px));border-left:3px solid var(--hi);line-height:1.45;font-size:13px}
+#hudBtns{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);display:flex;gap:8px}
+#hudBtns button{font-size:15px;padding:7px 14px;background:var(--panel);color:var(--fg);border:1px solid var(--line)}
+#hudBtns button#bExit{border-color:var(--bad)}
 #keys{left:16px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);color:var(--dim);font-size:11px}
 #overlay{position:fixed;inset:0;display:flex;padding:16px;background:linear-gradient(rgba(20,17,14,.6),rgba(20,17,14,.94));overflow:auto;touch-action:pan-y;user-select:text;-webkit-user-select:text}
 .card{margin:auto;max-width:640px;width:100%;background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--hi);padding:20px 24px;backdrop-filter:blur(6px)}
@@ -109,7 +112,8 @@ button:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
 <div id="flash" class="hud"></div>
 <div id="prompt" class="hud box" hidden><span id="pText" style="color:var(--fg);text-transform:none;font-size:12px"></span><div class="bar"><i id="pBar"></i></div></div>
 <div id="radio" class="hud box" hidden><span>Instructor · radio</span><div id="rText"></div></div>
-<div id="keys" class="hud">W A S D move · Shift run · 1 2 3 / Tab choose item · E use · R pull pin · Q or click spray · F torch · P pause</div>
+<div id="hudBtns"><button id="bVR">Enter VR</button><button id="bExit">Exit</button></div>
+<div id="keys" class="hud">W A S D move · Shift run · 1 2 3 / Tab choose item · E use · R pull pin · Q or click spray · F torch · Esc or P pause / exit</div>
 </div>
 <div id="touch" hidden><div id="stick" hidden><i></i></div><button id="tPin">Pin</button><button id="tItem">Item</button><button id="tAct">Use</button><button id="tSpray">Spray</button><button id="tTorch">Torch</button><button id="tPause">II</button></div>
 
@@ -131,6 +135,7 @@ button:focus-visible{outline:2px solid var(--fg);outline-offset:3px}
         <button id="mTrain">1 · Equipment training<small>A walled yard with eight short lessons: alarm, extinguisher types and the pin, mains isolation, crowbar, casualty carry. About 6 minutes.</small></button>
         <button id="mDrill">2 · Rescue drill<small>The collapsed building: six casualties in changing locations, three kinds of fire, live mains, jammed doors, aftershocks. Scored out of 100.</small></button>
       </div>
+      <p id="vrMsg">VR headset: checking this device…</p>
       <p id="loadMsg"></p>
     </div>
     <div class="btns" id="oBtns" hidden><button id="go">Start</button><button id="goVR" class="alt" hidden>Start in VR headset</button><button id="end" class="alt" hidden>End and get report</button><button id="menu" class="alt" hidden>Main menu</button>
@@ -309,7 +314,7 @@ function briefing(){
     $('oBody').innerHTML = `<p>Eight short lessons, one station at a time. Follow the orange light column and the task list on the left. Mistakes are explained, not punished: fires stay lit until you use the right extinguisher, and the rack refills.</p>${ctl}${chart}`; }
   else { $('oTag').textContent = 'Module 2 · rescue drill · ' + (GUIDED() ? 'guided' : 'assessment'); $('oTitle').textContent = 'Rescue drill';
     $('oBody').innerHTML = `<p>Lakshmi Nivas, a three-storey RC frame building, has failed at the ground storey. Six casualties are inside or beside it; their locations change every run. Three different fires are burning, the mains is live and two doors are jammed.</p><p>Order of work: kit up at the equipment cache, raise the fire alarm, switch off the mains at the main board (ground floor rear wall), then search floor by floor. Lay each casualty on the green tarp for the stretcher team.</p>${ctl}${GUIDED() ? chart : ''}`; }
-  $('oBtns').hidden = false; $('go').textContent = TRAIN ? 'Start training' : 'Start the drill'; $('menu').hidden = false; $('goVR').hidden = !vrOK;
+  $('oBtns').hidden = false; $('go').textContent = TRAIN ? 'Start training' : 'Start the drill'; $('menu').hidden = false; $('goVR').hidden = false; vrNote();
   renderer.setAnimationLoop(frame);
 }
 
@@ -364,7 +369,7 @@ function makeFire(f){
 
 // ---------- input ----------
 const touchMode = matchMedia('(pointer:coarse)').matches;
-if (touchMode){ $('touch').hidden = false; $('keys').hidden = true; }
+if (touchMode){ $('touch').hidden = false; $('keys').hidden = true; $('bExit').hidden = true; }
 const typing = e => /INPUT|SELECT|TEXTAREA/.test(e.target.tagName);
 const lockMouse = () => { if (touchMode) return; try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch(e){} };
 addEventListener('keydown', e => { if (typing(e)) return; if (e.code === 'KeyE' && !keys.KeyE) actEdge = true; if (e.code === 'KeyR') pinEdge = true; keys[e.code] = true;
@@ -500,7 +505,12 @@ function drawMap(){
 
 // ---------- VR headset (WebXR) ----------
 let xrOn = false, xrSession = null, ctrlR = null, vrOK = false, vrHud = null, vrCtx = null, vrT = 0, turnLatch = false, moveYaw = 0; const btnPrev = {};
-if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then(ok => { vrOK = ok; if (info) $('goVR').hidden = !ok; }).catch(() => {});
+const vrNote = () => { const m = $('vrMsg'); if (m) m.textContent = vrOK ? 'VR headset detected. Choose a module, then press Start in VR headset.' : 'VR headset: not detected on this device. To use VR, open this same link in the headset\'s own browser; the Start in VR headset button then becomes active.'; $('goVR').disabled = !vrOK; $('goVR').textContent = vrOK ? 'Start in VR headset' : 'VR: open in headset browser'; };
+if (navigator.xr && navigator.xr.isSessionSupported) navigator.xr.isSessionSupported('immersive-vr').then(ok => { vrOK = ok; vrNote(); }).catch(vrNote); else vrNote();
+$('bVR').addEventListener('click', () => { if (xrOn) return; if (!vrOK){ flash('NO VR HEADSET ON THIS DEVICE · OPEN THIS LINK IN THE HEADSET BROWSER', 4500); return; } enterVR().catch(e => flash('VR COULD NOT START')); });
+$('bExit').addEventListener('click', () => { if (started && !finished && !paused) pause(); else if (finished) location.reload(); });
+let wasLocked = false;
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) wasLocked = true; else if (wasLocked){ wasLocked = false; if (started && !finished && !paused && !xrOn) pause(); } });
 function enterVR(){
   return navigator.xr.requestSession('immersive-vr', {requiredFeatures:['local-floor']}).then(sess => {
     renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType('local-floor');
@@ -543,7 +553,7 @@ function drawVrHud(){
   else if (T < 45){ c.fillStyle = '#b9ab94'; c.font = '24px Arial'; c.fillText('L stick move · R stick turn · R trigger spray · grip use · A pin · B item · X torch · Y exit', 24, 490); }
   vrHud.material.map.needsUpdate = true;
 }
-$('goVR').addEventListener('click', () => { if (!AC) audio(); enterVR().then(() => $('go').click()).catch(e => { $('goVR').textContent = 'VR could not start'; console.warn(e); }); });
+$('goVR').addEventListener('click', () => { if (!vrOK) return; if (!AC) audio(); enterVR().then(() => $('go').click()).catch(e => { $('goVR').textContent = 'VR could not start'; console.warn(e); }); });
 
 // ---------- flow ----------
 $('go').addEventListener('click', () => {
@@ -554,7 +564,7 @@ $('go').addEventListener('click', () => {
 });
 $('end').addEventListener('click', () => finish(true));
 function pause(){ paused = true; if (document.exitPointerLock) document.exitPointerLock(); try { speechSynthesis.cancel(); } catch(e){}
-  $('oTag').textContent = 'Paused'; $('oTitle').textContent = 'Paused'; $('oBody').innerHTML = '<p>The clock is stopped. Resume, end now and get your report on what you have done so far, or go back to the main menu (this run is discarded).</p>';
+  $('oTag').textContent = 'Paused'; $('oTitle').textContent = 'Paused · exit options'; $('oBody').innerHTML = '<p>The clock is stopped. Choose one:</p><ul><li><b>Resume</b> to carry on.</li><li><b>End and get report</b> to stop here and see your trainee report.</li><li><b>Main menu</b> to exit this module (this run is discarded).</li></ul>';
   $('go').textContent = 'Resume'; $('end').hidden = false; $('menu').hidden = false; $('overlay').hidden = false; }
 function flash(text, ms = 2600){ const f = $('flash'); f.textContent = text; f.style.opacity = 1; clearTimeout(flash.t); flash.t = setTimeout(() => f.style.opacity = 0, ms); }
 function relPan(target){ const a = Math.atan2(-(target.x-P.pos.x), -(target.z-P.pos.z)) - P.yaw; return {a, pan: Math.max(-1, Math.min(1, -Math.sin(a)))}; }
